@@ -50,6 +50,8 @@ pub use runtime::{spawn, Runtime};
 pub use {builder::FusionDriver, runtime::FusionRuntime};
 
 /// Start a monoio runtime.
+/// 
+/// 根据提供的驱动类型创建一个运行时实例，并启动之(block_on)。
 ///
 /// # Examples
 ///
@@ -96,6 +98,11 @@ where
 /// require passing ownership of a buffer to the runtime. When the operation
 /// completes, the buffer is returned whether or not the operation completed
 /// successfully.
+/// 
+/// 专为`io-uring`中带缓冲区的操作设计的`Result`类型。
+/// 
+/// 此类型用做需要传入缓冲区的所有权给运行时的异步`io-uring`函数的返回值。
+/// 当操作完成时，无论操作成功与否都会返回缓冲区。
 ///
 /// # Examples
 ///

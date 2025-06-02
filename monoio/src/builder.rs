@@ -1,3 +1,7 @@
+//!
+//! 
+//! 
+
 use std::{io, marker::PhantomData};
 
 #[cfg(all(target_os = "linux", feature = "iouring"))]
@@ -356,6 +360,8 @@ impl<D: time_wrap::TimeWrapable> RuntimeBuilder<D> {
 impl<D> RuntimeBuilder<D> {
     /// Attach thread pool, this will overwrite blocking strategy.
     /// All `spawn_blocking` will be executed on given thread pool.
+    /// 
+    /// 为运行时附加阻塞线程池
     #[cfg(feature = "sync")]
     #[must_use]
     pub fn attach_thread_pool(
@@ -371,6 +377,8 @@ impl<D> RuntimeBuilder<D> {
     /// If `BlockingStrategy::ExecuteLocal` is used, it will execute with current thread, and may
     /// cause tasks high latency.
     /// Attaching a thread pool is recommended if `spawn_blocking` will be used.
+    /// 
+    /// 为运行时设置阻塞任务执行策略。(直接执行，线程池执行，恐慌禁止执行)
     #[cfg(feature = "sync")]
     #[must_use]
     pub fn with_blocking_strategy(mut self, strategy: crate::blocking::BlockingStrategy) -> Self {

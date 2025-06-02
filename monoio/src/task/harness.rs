@@ -16,6 +16,11 @@ use crate::{
     utils::thread_id::{try_get_current_thread_id, DEFAULT_THREAD_ID},
 };
 
+/// 任务本体的又一种封装(另两种JoinHandle,Task)。
+/// 
+/// 用途：
+/// - 作为任务自身操作的句柄。在虚表方法实现中动过此对象对任务进行操作。
+/// - 针对任务的重要操作都通过这个句柄进行，算是任务最重要的动作。
 pub(crate) struct Harness<T: Future, S: 'static> {
     cell: NonNull<Cell<T, S>>,
 }
@@ -31,14 +36,17 @@ where
         }
     }
 
+    /// 任务头
     fn header(&self) -> &Header {
         unsafe { &self.cell.as_ref().header }
     }
 
+    /// 任务尾
     fn trailer(&self) -> &Trailer {
         unsafe { &self.cell.as_ref().trailer }
     }
 
+    /// 任务核
     fn core(&self) -> &Core<T, S> {
         unsafe { &self.cell.as_ref().core }
     }
@@ -50,18 +58,23 @@ where
     S: Schedule,
 {
     /// Polls the inner future.
+    /// 
+    /// 轮询任务中的Future。
     pub(super) fn poll(self) {
         trace!("MONOIO DEBUG[Harness]:: poll");
         match self.poll_inner() {
+            // 标明本次轮训失败，但任务又被通知了，需要立即再次调度。
             PollFuture::Notified => {
                 // We should re-schedule the task.
                 self.header().state.ref_inc();
                 self.core().scheduler.yield_now(self.get_new_task());
             }
+            // 标明此次轮询成功，任务完成了。
             PollFuture::Complete => {
                 self.complete();
             }
-            PollFuture::Done => (),
+            // 标明此次轮询失败，本次轮训结束。
+            PollFuture::Done => (), 
         }
     }
 
@@ -78,10 +91,15 @@ where
         let cx = Context::from_waker(&waker_ref);
         let res = poll_future(&self.core().stage, cx);
 
+        // 轮询成功，则返回完成
         if res == Poll::Ready(()) {
             return PollFuture::Complete;
         }
 
+        // 轮询失败，则将任务状态转为空闲状态(移除执行标记)。
+        // 状态改后，可能存在两种情况：
+        // - 如果状态为队列中，则返回Notified。
+        // - 否则返回Done。
         use super::state::TransitionToIdle;
         match self.header().state.transition_to_idle() {
             TransitionToIdle::Ok => PollFuture::Done,
@@ -89,6 +107,7 @@ where
         }
     }
 
+    /// 释放任务所占堆内存
     pub(super) fn dealloc(self) {
         trace!("MONOIO DEBUG[Harness]:: dealloc");
 
@@ -103,6 +122,9 @@ where
         }
     }
 
+    /// 任务终结
+    /// 
+    /// 标记为运行中，设置任务输出值，调用终结函数
     #[cfg(feature = "sync")]
     pub(super) fn finish(self, val: <T as Future>::Output) {
         trace!("MONOIO DEBUG[Harness]:: finish");
@@ -323,8 +345,10 @@ fn is_remote_task(owner_id: usize) -> bool {
     }
 }
 
+/// 判断是否能读到任务输出
 fn can_read_output(header: &Header, trailer: &Trailer, waker: &Waker) -> bool {
     // Load a snapshot of the current task state
+    // 加载状态快照。
     let snapshot = header.state.load();
 
     debug_assert!(snapshot.is_join_interested());
@@ -373,6 +397,9 @@ fn can_read_output(header: &Header, trailer: &Trailer, waker: &Waker) -> bool {
     true
 }
 
+/// 设置等待者唤醒器
+/// 
+/// 设置后，需要更新任务状态的等待者唤醒器字段。
 fn set_join_waker(
     header: &Header,
     trailer: &Trailer,
@@ -384,20 +411,25 @@ fn set_join_waker(
 
     // Safety: Only the `JoinHandle` may set the `waker` field. When
     // `JOIN_INTEREST` is **not** set, nothing else will touch the field.
+    // 安全性：
+    // 只有`JoinHandle`可以设置此唤醒器字段。如果等待者标记未设置，无人可碰此字段。
     unsafe {
         trailer.set_waker(Some(waker));
     }
 
     // Update the `JoinWaker` state accordingly
+    // 更新等待者唤醒器标记为已设置。
     let res = header.state.set_join_waker();
 
     // If the state could not be updated, then clear the join waker
+    // 如果标记设置失败，则移除已添加的唤醒器。
     if res.is_err() {
         unsafe {
             trailer.set_waker(None);
         }
     }
 
+    // 返回设置唤醒器标记的结论
     res
 }
 
@@ -409,8 +441,11 @@ enum PollFuture {
 
 /// Poll the future. If the future completes, the output is written to the
 /// stage field.
+/// 
+/// 轮询任务，若任务完成则将任务输出写入stage字段。
 fn poll_future<T: Future>(core: &CoreStage<T>, cx: Context<'_>) -> Poll<()> {
     // CHIHAI: For efficiency we do not catch.
+    // 为了性能，此处没有捕获Future的异常。但是这会导致如果任务有异常运行时也会崩溃。
 
     // Poll the future.
     // let output = panic::catch_unwind(panic::AssertUnwindSafe(|| {
@@ -441,9 +476,12 @@ fn poll_future<T: Future>(core: &CoreStage<T>, cx: Context<'_>) -> Poll<()> {
     };
 
     // Catch and ignore panics if the future panics on drop.
+    // Future遗弃时的异常也要捕获。
     // let _ = panic::catch_unwind(panic::AssertUnwindSafe(|| {
     //     core.store_output(output);
     // }));
+
+    // 将Core::CoreStage::stage设为已完成并将任务结果存入其中。
     core.store_output(output);
 
     Poll::Ready(())

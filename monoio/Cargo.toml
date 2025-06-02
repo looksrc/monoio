@@ -80,7 +80,7 @@ renameat = []
 symlinkat = []
 # enable `async main` macros support
 macros = ["monoio-macros"]
-# allow waker to be sent across threads
+# allow waker to be sent across threads.所谓的sync名字源自特质Sync线程间共享安全。
 sync = ["flume", "threadpool", "once_cell"]
 # enable bind cpu set
 utils = ["nix"]
